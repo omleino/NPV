@@ -49,18 +49,19 @@ def linear_payment(principal, r, n, year):
     return total, principal_payment, interest_payment
 
 def payback_year(cum_series, invest_amount):
-    """Ensimmäinen vuosi jolloin kumulatiivinen kassavirta >= investointi (ei diskontattu). Palauttaa desimaalivuoden."""
-    c = cum_series.values
-    for i in range(len(c)):
-        if c[i] >= invest_amount:
+    """Ensimmäinen vuosi jolloin kumulatiivinen kassavirta ≥ investointi (ei diskontattu). Palauttaa desimaalivuoden.
+    Hyväksyy sekä numpy-taulukon että pandas-sarjan."""
+    import numpy as _np
+    c = _np.asarray(cum_series, dtype=float)
+    for i, val in enumerate(c):
+        if val >= invest_amount:
             if i == 0:
                 return 1.0
-            # interpolaatiota edellisen vuoden ja tämän välillä
             prev = c[i-1]
             need = invest_amount - prev
-            delta = c[i] - prev
+            delta = val - prev
             frac = 0.0 if delta == 0 else need / delta
-            return (i) + frac  # i on 1-indeksoituna kuluva vuosi
+            return i + frac  # esim. 5.4 vuotta
     return math.inf
 
 # --- laskenta ---
@@ -71,7 +72,6 @@ savings = np.array([(annual_saving * ((1 + saving_growth) ** (t))) for t in rang
 
 # rahoitus
 loan_principal = invest * financed_share
-own_cash = invest * (1 - financed_share)
 
 payments = np.zeros(n_years)
 interests = np.zeros(n_years)
@@ -79,19 +79,15 @@ principals = np.zeros(n_years)
 
 if annuity:
     pay = annuity_payment(loan_principal, interest, loan_years)
+    remaining = loan_principal
     for y in range(n_years):
         if y < loan_years:
-            # hajotetaan karkeasti korko/lyhennys
-            # Annuiteetin korko osuus: r * remaining, jossa remaining approksimoidaan rekursiivisesti
-            if y == 0:
-                remaining = loan_principal
-            else:
-                remaining = remaining * (1 + interest) - pay
             interest_part = remaining * interest
             principal_part = pay - interest_part
             payments[y] = pay
             interests[y] = max(0.0, interest_part)
             principals[y] = max(0.0, principal_part)
+            remaining = max(0.0, remaining - principal_part)
 else:
     for y in range(n_years):
         if y < loan_years:
@@ -107,21 +103,19 @@ if repl_interval and repl_cost and repl_interval > 0:
     for y in range(repl_interval, n_years, repl_interval):
         replacements[y] = repl_cost
 
-# vuosikassavirta (positiivinen = hyöty)
+# vuosikassavirta
 cashflow = savings - payments - om - replacements
-# investointikustannus vuonna 0 (oman rahan osuus ulos) + lainan nosto sisään, mutta tässä mallissa
-# tarkastellaan kassavirtaa "säästö - lainanhoito - kulut", ja investointi huomioidaan erikseen NPV:ssä
 cum_cash = np.cumsum(cashflow)
 
-# takaisinmaksuaika (ei diskontattu)
+# takaisinmaksuaika
 pb = payback_year(cum_cash, invest)
 
-# NPV (oletetaan investointi tapahtuu vuonna 0 täysimääräisenä)
+# NPV
 years = np.arange(1, n_years+1)
 discount_factors = 1 / ((1 + discount_rate) ** years)
 npv = -invest + np.sum(cashflow * discount_factors)
 
-# DataFrame raportointiin
+# DataFrame
 df = pd.DataFrame({
     "Vuosi": years,
     "Säästö (€)": savings.round(2),
@@ -173,10 +167,10 @@ st.caption("Lataa CSV oikeasta yläkulmasta (kolmen pisteen valikko).")
 st.dataframe(df, use_container_width=True)
 
 with st.expander("Laskentalogiikka (tiivistelmä)"):
-    st.markdown("""
+    st.markdown(\"\"\"
 - **Nettokassavirta** = säästö − lainanhoito − ylläpito − korvausinvestoinnit  
 - **Kumulatiivinen kassavirta** = vuosikassavirtojen summa  
 - **Takaisinmaksuaika** = ensimmäinen vuosi, jolloin kumulatiivinen kassavirta ≥ investointi (ei diskontattu)  
 - **NPV** = −investointi + Σ (nettovuosikassavirta / (1 + diskonttokorko)^vuosi)  
 - Lainoitus: valittavissa annuiteetti tai tasalyhennys.
-""")
+\"\"\")
