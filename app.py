@@ -190,10 +190,10 @@ st.caption("Lataa CSV oikeasta yläkulmasta (kolmen pisteen valikko).")
 st.dataframe(df, use_container_width=True)
 
 with st.expander("Laskentalogiikka (tiivistelmä)"):
-    st.markdown(\"\"\"
+    st.markdown("""
 - **Nettokassavirta** = säästö − lainanhoito − ylläpito − korvausinvestoinnit  
 - **Kumulatiivinen kassavirta** = vuosikassavirtojen summa  
 - **Takaisinmaksuaika** = ensimmäinen vuosi, jolloin kumulatiivinen kassavirta ≥ investointi (ei diskontattu)  
 - **NPV** = −investointi + Σ (nettovuosikassavirta / (1 + diskonttokorko)^vuosi)  
 - Lainoitus: valittavissa annuiteetti tai tasalyhennys.
-\"\"\")
+""")
