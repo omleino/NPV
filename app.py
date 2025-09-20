@@ -42,12 +42,11 @@ def annuity_payment(principal, r, n):
 
 def linear_payment(principal, r, n, year):
     if principal <= 0 or n <= 0:
-        return 0.0, 0.0, 0.0
+        return 0.0
     principal_payment = principal / n
     remaining = principal - (year - 1) * principal_payment
     interest_payment = remaining * r
-    total = principal_payment + interest_payment
-    return total, principal_payment, interest_payment
+    return principal_payment + interest_payment
 
 def payback_year(cumulative):
     for i, val in enumerate(cumulative):
@@ -87,36 +86,33 @@ if annuity:
 else:
     for y in range(n_years):
         if y < loan_years:
-            total, _, _ = linear_payment(loan_principal, interest, loan_years, y+1)
-            payments[y] = total
+            payments[y] = linear_payment(loan_principal, interest, loan_years, y+1)
 
-# Nettokassavirta (säästö – lainanhoito)
+# --- NPV ilman lainaa (puhdas investointi) ---
+discount_factors = 1.0 / np.power(1.0 + discount_rate, np.arange(1, n_years + 1))
+npv_invest = -invest + np.sum(savings * discount_factors)
+
+# --- Kassavirta lainalla (osakkaan näkökulma) ---
 cashflow = savings - payments
-
-# Kumulatiivinen kassavirta (alkaa −investoinnista)
 cum_cash = np.zeros(n_years + 1)
 cum_cash[0] = -invest
 for i in range(1, n_years + 1):
     cum_cash[i] = cum_cash[i-1] + cashflow[i-1]
 
-# Takaisinmaksuaika
 pb = payback_year(cum_cash)
-
-# Diskontatut kassavirrat ja NPV
-discount_factors = 1.0 / np.power(1.0 + discount_rate, np.arange(1, n_years + 1))
-discounted = cashflow * discount_factors
-npv = -invest + np.sum(discounted)
+discounted_cash = cashflow * discount_factors
+npv_finance = -invest + np.sum(discounted_cash)
 
 # --- Tulokset ---
 col1, col2, col3 = st.columns(3)
-col1.metric("NPV", f"{npv:,.0f} €")
-col2.metric("Takaisinmaksuaika", "∞" if math.isinf(pb) else f"{pb:.1f} v")
-col3.metric("1. vuoden nettokassavirta", f"{cashflow[0]:,.0f} €")
+col1.metric("NPV (ilman lainaa)", f"{npv_invest:,.0f} €")
+col2.metric("NPV (lainalla)", f"{npv_finance:,.0f} €")
+col3.metric("Takaisinmaksuaika", "∞" if math.isinf(pb) else f"{pb:.1f} v")
 
 st.divider()
 
-# --- Kuvaaja 1: Kumulatiivinen kassavirta ---
-st.subheader("Kumulatiivinen kassavirta")
+# --- Kuvaaja 1: Kumulatiivinen kassavirta (lainalla) ---
+st.subheader("Kumulatiivinen kassavirta (lainalla)")
 fig1 = plt.figure()
 plt.plot(years, cum_cash, marker="o")
 plt.axhline(0, color="black", linestyle="--")
@@ -124,11 +120,12 @@ plt.xlabel("Vuosi")
 plt.ylabel("€")
 st.pyplot(fig1, clear_figure=True)
 
-# --- Kuvaaja 2: Diskontatut kassavirrat ---
-st.subheader("Diskontatut kassavirrat ja NPV")
+# --- Kuvaaja 2: Diskontatut säästöt (ilman lainaa) ---
+st.subheader("Diskontatut säästöt ja NPV (ilman lainaa)")
 fig2 = plt.figure()
-plt.bar(np.arange(1, n_years+1), discounted, label="Diskontattu kassavirta")
-plt.plot(np.arange(1, n_years+1), np.cumsum(discounted) - invest, color="red", marker="o", label="Kumulatiivinen (NPV)")
+plt.bar(np.arange(1, n_years+1), savings * discount_factors, label="Diskontatut säästöt")
+plt.plot(np.arange(1, n_years+1), np.cumsum(savings * discount_factors) - invest,
+         color="red", marker="o", label="Kumulatiivinen (NPV)")
 plt.axhline(0, color="black", linestyle="--")
 plt.xlabel("Vuosi")
 plt.ylabel("€ (nykyarvo)")
