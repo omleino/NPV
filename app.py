@@ -1,102 +1,136 @@
 # -*- coding: utf-8 -*-
 import math
 import numpy as np
-import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="NPV – Ultra-minimi", page_icon="💶", layout="centered")
+st.set_page_config(page_title="Maalämpö vs. Kaukolämpö", page_icon="💶", layout="wide")
+st.title("💶 Maalämpöinvestoinnin kannattavuus")
 
-st.title("💶 NPV – Ultra-minimi")
-
+# --- Syötteet ---
 with st.sidebar:
-    invest = st.number_input("Investointi (€)", min_value=0.0, value=600000.0, step=10000.0, format="%.0f")
-    lifetime = st.number_input("Elinkaari (v)", min_value=1, value=25, step=1)
-    annual_saving = st.number_input("Vuosisäästö 1. vuotena (€ / v)", min_value=0.0, value=50000.0, step=1000.0, format="%.0f")
-    saving_growth = st.number_input("Säästön kasvu (% / v)", min_value=-50.0, max_value=50.0, value=0.0, step=0.1) / 100.0
-    financed_share = st.slider("Lainan osuus (%)", 0, 100, 100) / 100.0
+    st.header("Investointi ja elinkaari")
+    invest = st.number_input("Maalämmön investointi (€)", min_value=0, value=600000, step=10000, format="%d")
+    lifetime = st.number_input("Elinkaari (vuotta)", min_value=1, value=25, step=1)
+
+    st.header("Kaukolämpö")
+    dh_price = st.number_input("Kaukolämmön hinta (€/MWh)", min_value=0.0, value=100.0, step=1.0)
+    dh_use = st.number_input("Kaukolämmön kulutus (MWh/v)", min_value=0.0, value=500.0, step=10.0)
+    dh_infl = st.number_input("Kaukolämmön inflaatio (%/v)", value=2.0, step=0.1) / 100.0
+
+    st.header("Maalämpö")
+    elec_use = st.number_input("Maalämmön sähkönkulutus (MWh/v)", min_value=0.0, value=150.0, step=10.0)
+    elec_price = st.number_input("Sähkön hinta (€/MWh)", min_value=0.0, value=60.0, step=1.0)
+    elec_infl = st.number_input("Sähkön inflaatio (%/v)", value=2.0, step=0.1) / 100.0
+
+    st.header("Rahoitus")
+    financed_share = st.slider("Lainan osuus investoinnista (%)", 0, 100, 100) / 100.0
     loan_years = st.number_input("Laina-aika (v)", min_value=1, value=20, step=1)
     interest = st.number_input("Korko (% p.a.)", min_value=0.0, value=4.0, step=0.1) / 100.0
-    annuity = st.toggle("Annuiteetti", value=True)
-    discount_rate = st.number_input("Diskonttokorko (% p.a.)", min_value=0.0, value=4.0, step=0.1) / 100.0
-    om_fixed = st.number_input("Ylläpito (€ / v)", min_value=0.0, value=0.0, step=500.0, format="%.0f")
+    annuity = st.toggle("Annuiteettilaina", value=True)
 
+    st.header("NPV")
+    discount_rate = st.number_input("Diskonttokorko (% p.a.)", min_value=0.0, value=4.0, step=0.1) / 100.0
+
+# --- Apufunktiot ---
 def annuity_payment(principal, r, n):
-    if principal <= 0 or n <= 0: return 0.0
-    if r == 0: return principal / n
+    if principal <= 0 or n <= 0:
+        return 0.0
+    if r == 0:
+        return principal / n
     return principal * (r * (1 + r) ** n) / ((1 + r) ** n - 1)
 
 def linear_payment(principal, r, n, year):
-    if principal <= 0 or n <= 0: return 0.0, 0.0, 0.0
+    if principal <= 0 or n <= 0:
+        return 0.0, 0.0, 0.0
     principal_payment = principal / n
     remaining = principal - (year - 1) * principal_payment
     interest_payment = remaining * r
     total = principal_payment + interest_payment
     return total, principal_payment, interest_payment
 
-def payback_year(cum_series, invest_amount):
-    c = np.asarray(cum_series, dtype=float).ravel()
-    inv = float(invest_amount)
-    for i in range(len(c)):
-        if c[i] >= inv:
-            if i == 0: return 1.0
-            prev = c[i-1]; need = inv - prev; delta = c[i] - prev
+def payback_year(cumulative):
+    for i, val in enumerate(cumulative):
+        if val >= 0:
+            if i == 0:
+                return 0.0
+            prev = cumulative[i-1]
+            need = 0 - prev
+            delta = val - prev
             frac = 0.0 if delta == 0 else need / delta
-            return i + frac
+            return (i) + frac
     return math.inf
 
+# --- Laskenta ---
 n_years = int(lifetime)
-years = np.arange(1, n_years + 1)
-savings = np.array([(annual_saving * ((1 + saving_growth) ** t)) for t in range(n_years)], dtype=float)
-loan_principal = float(invest) * float(financed_share)
+years = np.arange(0, n_years + 1)
 
-payments = np.zeros(n_years, dtype=float)
-interests = np.zeros(n_years, dtype=float)
-principals = np.zeros(n_years, dtype=float)
+# Kaukolämmön kustannukset
+dh_costs = np.array([dh_price * ((1 + dh_infl) ** t) * dh_use for t in range(n_years)], dtype=float)
 
+# Maalämmön kustannukset
+ml_costs = np.array([elec_price * ((1 + elec_infl) ** t) * elec_use for t in range(n_years)], dtype=float)
+
+# Säästöt (lämmityskustannusten ero)
+savings = dh_costs - ml_costs
+
+# Lainan maksut
+loan_principal = invest * financed_share
+payments = np.zeros(n_years)
 if annuity:
-    pay = annuity_payment(loan_principal, interest, int(loan_years))
+    pay = annuity_payment(loan_principal, interest, loan_years)
     remaining = loan_principal
-    for y in range(min(n_years, int(loan_years))):
-        interest_part = remaining * interest
-        principal_part = pay - interest_part
-        payments[y] = pay
-        interests[y] = max(0.0, interest_part)
-        principals[y] = max(0.0, principal_part)
-        remaining = max(0.0, remaining - principal_part)
+    for y in range(n_years):
+        if y < loan_years:
+            payments[y] = pay
+            remaining = remaining * (1 + interest) - pay
 else:
-    for y in range(min(n_years, int(loan_years))):
-        total, p_part, i_part = linear_payment(loan_principal, interest, int(loan_years), y + 1)
-        payments[y] = total
-        interests[y] = i_part
-        principals[y] = p_part
+    for y in range(n_years):
+        if y < loan_years:
+            total, _, _ = linear_payment(loan_principal, interest, loan_years, y+1)
+            payments[y] = total
 
-om = np.full(n_years, float(om_fixed))
-cashflow = savings - payments - om
-cum_cash = np.cumsum(cashflow)
+# Nettokassavirta (säästö – lainanhoito)
+cashflow = savings - payments
 
-pb = payback_year(cum_cash, invest)
-discount_factors = 1.0 / np.power(1.0 + discount_rate, years)
-npv = -float(invest) + float(np.sum(cashflow * discount_factors))
+# Kumulatiivinen kassavirta (alkaa −investoinnista)
+cum_cash = np.zeros(n_years + 1)
+cum_cash[0] = -invest
+for i in range(1, n_years + 1):
+    cum_cash[i] = cum_cash[i-1] + cashflow[i-1]
 
-st.metric("NPV", f"{npv:,.0f} €")
-st.metric("Takaisinmaksuaika (ei disk.)", "∞" if math.isinf(pb) else f"{pb:.1f} v")
-st.metric("1. vuoden nettokassavirta", f"{cashflow[0]:,.0f} €")
+# Takaisinmaksuaika
+pb = payback_year(cum_cash)
 
-df = pd.DataFrame({
-    "Vuosi": years,
-    "Säästö (€)": np.round(savings, 2),
-    "Lainan maksut (€)": np.round(payments, 2),
-    "Korko (€)": np.round(interests, 2),
-    "Lyhennys (€)": np.round(principals, 2),
-    "Ylläpito (€)": np.round(om, 2),
-    "Nettokassavirta (€)": np.round(cashflow, 2),
-    "Kumulatiivinen kassavirta (€)": np.round(cum_cash, 2),
-    "Diskonttaustekijä": np.round(discount_factors, 5),
-    "Diskontattu kassavirta (€)": np.round(cashflow * discount_factors, 2),
-})
-st.dataframe(df, use_container_width=True)
+# Diskontatut kassavirrat ja NPV
+discount_factors = 1.0 / np.power(1.0 + discount_rate, np.arange(1, n_years + 1))
+discounted = cashflow * discount_factors
+npv = -invest + np.sum(discounted)
 
-csv = df.to_csv(index=False).encode("utf-8")
-st.download_button("Lataa CSV", data=csv, file_name="npv_ultra.csv", mime="text/csv")
+# --- Tulokset ---
+col1, col2, col3 = st.columns(3)
+col1.metric("NPV", f"{npv:,.0f} €")
+col2.metric("Takaisinmaksuaika", "∞" if math.isinf(pb) else f"{pb:.1f} v")
+col3.metric("1. vuoden nettokassavirta", f"{cashflow[0]:,.0f} €")
 
-st.caption("Ultra-minimi: ei matplotlibia, ei PDF:ää. Jos tämä toimii Cloudissa, vika on grafiikka-/kirjastoriippuvuuksissa.")
+st.divider()
+
+# --- Kuvaaja 1: Kumulatiivinen kassavirta ---
+st.subheader("Kumulatiivinen kassavirta")
+fig1 = plt.figure()
+plt.plot(years, cum_cash, marker="o")
+plt.axhline(0, color="black", linestyle="--")
+plt.xlabel("Vuosi")
+plt.ylabel("€")
+st.pyplot(fig1, clear_figure=True)
+
+# --- Kuvaaja 2: Diskontatut kassavirrat ---
+st.subheader("Diskontatut kassavirrat ja NPV")
+fig2 = plt.figure()
+plt.bar(np.arange(1, n_years+1), discounted, label="Diskontattu kassavirta")
+plt.plot(np.arange(1, n_years+1), np.cumsum(discounted) - invest, color="red", marker="o", label="Kumulatiivinen (NPV)")
+plt.axhline(0, color="black", linestyle="--")
+plt.xlabel("Vuosi")
+plt.ylabel("€ (nykyarvo)")
+plt.legend()
+st.pyplot(fig2, clear_figure=True)
